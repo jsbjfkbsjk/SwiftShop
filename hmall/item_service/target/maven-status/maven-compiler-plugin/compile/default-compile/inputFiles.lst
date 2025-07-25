@@ -1,0 +1,10 @@
+D:\hmall\item_service\src\main\java\com\heima\item\domain\dto\ItemDTO.java
+D:\hmall\item_service\src\main\java\com\heima\item\mapper\ItemMapper.java
+D:\hmall\item_service\src\main\java\com\heima\item\service\impl\ItemServiceImpl.java
+D:\hmall\item_service\src\main\java\com\heima\item\Main.java
+D:\hmall\item_service\src\main\java\com\heima\item\service\IItemService.java
+D:\hmall\item_service\src\main\java\com\heima\item\ItemApplication.java
+D:\hmall\item_service\src\main\java\com\heima\item\controller\ItemController.java
+D:\hmall\item_service\src\main\java\com\heima\item\domain\po\Item.java
+D:\hmall\item_service\src\main\java\com\heima\item\domain\dto\OrderDetailDTO.java
+D:\hmall\item_service\src\main\java\com\heima\item\domain\query\ItemPageQuery.java
