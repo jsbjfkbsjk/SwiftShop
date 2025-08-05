@@ -10,7 +10,7 @@ import com.heima.trade.domain.po.Order;
  *  服务类
  * </p>
  *
- * @author 虎哥
+ * @author jsbjfkbsjk
  * @since 2023-05-05
  */
 public interface IOrderService extends IService<Order> {
@@ -19,5 +19,5 @@ public interface IOrderService extends IService<Order> {
 
     void markOrderPaySuccess(Long orderId);
 
-    void cancelOrder(Long orderId);
+    void cancelOrder(Long orderId,String msg_id);
 }

@@ -9,7 +9,7 @@ import com.heima.user.domain.po.Address;
  *  Mapper 接口
  * </p>
  *
- * @author 虎哥
+ * @author jsbjfkbsjk
  * @since 2023-05-05
  */
 public interface AddressMapper extends BaseMapper<Address> {

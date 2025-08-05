@@ -8,24 +8,27 @@ import com.heima.trade.constant.MqConstant;
 import com.heima.trade.domain.dto.OrderFormDTO;
 import com.heima.trade.domain.po.Order;
 import com.heima.trade.domain.po.OrderDetail;
+import com.heima.trade.mapper.OrderDetailMapper;
 import com.heima.trade.mapper.OrderMapper;
 import com.heima.trade.service.IOrderDetailService;
 import com.heima.trade.service.IOrderService;
 import com.heima.api.dto.ItemDTO;
 import com.hmall.common.exception.BadRequestException;
+import com.hmall.common.exception.CommonException;
+import com.hmall.common.utils.BeanUtils;
 import com.hmall.common.utils.UserContext;
 
 import io.seata.spring.annotation.GlobalTransactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -33,7 +36,7 @@ import java.util.stream.Collectors;
  * 服务实现类
  * </p>
  *
- * @author 虎哥
+ * @author j
  * @since 2023-05-05
  */
 @Service
@@ -46,6 +49,9 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
    // private final ICartService cartService;
     private final CartClient cartClient;
     private final RabbitTemplate rabbitTemplate;
+    private final OrderMapper orderMapper;
+    private final OrderDetailMapper orderDetailMapper;
+    private final RedisTemplate redisTemplate;
 
     @Override
    // @Transactional
@@ -83,7 +89,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
 
         // 3.清理购物车商品
         //cartService.removeByItemIds(itemIds);
-        cartClient.deleteCartItemByIds(itemIds);
+       // cartClient.deleteCartItemByIds(itemIds);
 
         // 4.扣减库存
         try {
@@ -92,6 +98,11 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         } catch (Exception e) {
             throw new RuntimeException("库存不足！");
         }
+        rabbitTemplate.convertAndSend("trade.topic","order.create",
+                UserContext.getUser(),message -> {
+            message.getMessageProperties().setHeader("item-ids",itemIds);
+            return message;
+                });
         rabbitTemplate.convertAndSend(MqConstant.DELAY_EXCHANGE_NAME,MqConstant.DELAY_ORDER_KEY,
                 order.getId(),message -> {
             message.getMessageProperties().setDelay(5000);
@@ -102,15 +113,59 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
 
     @Override
     public void markOrderPaySuccess(Long orderId) {
-        Order order = new Order();
-        order.setId(orderId);
-        order.setStatus(2);
-        order.setPayTime(LocalDateTime.now());
-        updateById(order);
+//        Order order = new Order();
+//        order.setId(orderId);
+//        order.setStatus(2);
+//        order.setPayTime(LocalDateTime.now());
+//        updateById(order);
+        // UPDATE `order` SET status = ? , pay_time = ? WHERE id = ? AND status = 1
+        lambdaUpdate()
+                .set(Order::getStatus, 2)
+                .set(Order::getPayTime, LocalDateTime.now())
+                .eq(Order::getId, orderId)
+                .eq(Order::getStatus, 1)
+                .update();
     }
 
     @Override
-    public void cancelOrder(Long orderId) {
+    @GlobalTransactional(rollbackFor = Exception.class)
+    public void cancelOrder(Long orderId,String msg_id) {
+
+            Order order = orderMapper.selectById(orderId);
+            if (order == null) {
+                throw new CommonException("订单不存在",404);
+            }
+        boolean first = Boolean.TRUE.equals(redisTemplate.opsForValue()
+                .setIfAbsent("mq:msg:" + msg_id, "1", Duration.ofHours(2)));
+        if (!first) {
+            // 已处理过，直接 ACK
+            return ;
+        }
+
+            // 3. 幂等性判断
+            if (order.getStatus()==5) {
+                return; // 已关闭/取消，无需重复操作
+            }
+            if ((order.getStatus())==4) {
+                return; // 已支付，不可取消
+            }
+            if (order.getStatus()==6)return ;//定时任务和延迟队列有可能处理两次，判断下是否处理完毕就行
+
+            // 4. 修改订单状态为 CLOSED
+            order.setStatus(6);
+            updateById(order);
+
+           List<OrderDetail>orderDetails = detailService.listByIds(List.of(orderId));
+           List<OrderDetailDTO>orderDetailDTOS = new LinkedList<>();
+           for(OrderDetail orderDetail:orderDetails){
+               OrderDetailDTO orderDetailDTO = new OrderDetailDTO();
+               orderDetailDTO.setNum(orderDetail.getNum());
+               orderDetailDTO.setItemId(orderDetail.getItemId());
+               orderDetailDTOS.add(orderDetailDTO);
+           }
+
+            // 5. 回滚库存
+            itemClient.recoverStock(orderDetailDTOS);
 
     }
 

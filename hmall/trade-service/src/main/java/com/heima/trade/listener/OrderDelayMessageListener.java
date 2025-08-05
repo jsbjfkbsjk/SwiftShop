@@ -4,12 +4,14 @@ import com.heima.api.client.PayClient;
 import com.heima.api.dto.PayOrderDTO;
 import com.heima.trade.constant.MqConstant;
 import com.heima.trade.domain.po.Order;
+import com.heima.trade.mapper.OrderMapper;
 import com.heima.trade.service.IOrderService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.amqp.rabbit.annotation.Exchange;
 import org.springframework.amqp.rabbit.annotation.Queue;
 import org.springframework.amqp.rabbit.annotation.QueueBinding;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -19,12 +21,14 @@ public class OrderDelayMessageListener {
     private final IOrderService orderService;
     private final PayClient payClient;
 
+
+    //延迟消息
     @RabbitListener(bindings = @QueueBinding(
             value = @Queue(name = MqConstant.DELAY_ORDER_QUEUE_NAME),
             exchange = @Exchange(name = MqConstant.DELAY_EXCHANGE_NAME, delayed = "true"),
             key = MqConstant.DELAY_ORDER_KEY
     ))
-    public void listenOrderDelayMessage(Long orderId){
+    public void listenOrderDelayMessage(Long orderId, @Header("AmqpHeaders.MESSAGE_ID")String msg_id){
         // 1.查询订单
         Order order = orderService.getById(orderId);
         // 2.检测订单状态，判断是否已支付
@@ -40,7 +44,17 @@ public class OrderDelayMessageListener {
             orderService.markOrderPaySuccess(orderId);
         }else{
             // TODO 4.2.未支付，取消订单，回复库存
-            orderService.cancelOrder(orderId);
+            orderService.cancelOrder(orderId,msg_id);
         }
     }
+
+    @RabbitListener(bindings = @QueueBinding(
+            value = @Queue(name = "trade.pay.success.queue", durable = "true"),
+            exchange = @Exchange(name = "pay.topic"),
+            key = "pay.success"
+    ))
+    public void listenPaySuccess(Long orderId){
+        orderService.markOrderPaySuccess(orderId);
+    }
+
 }
